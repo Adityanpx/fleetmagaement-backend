@@ -9,7 +9,6 @@ function buildTripFilters(q, alias = 't', startIdx = 1) {
 
   if (q.status) { conds.push(`${alias}.status = $${i++}`); params.push(q.status); }
   if (q.vehicle_id) { conds.push(`${alias}.vehicle_id = $${i++}`); params.push(q.vehicle_id); }
-  if (q.driver_id) { conds.push(`${alias}.driver_id = $${i++}`); params.push(q.driver_id); }
   if (q.company_id) { conds.push(`${alias}.company_id = $${i++}`); params.push(q.company_id); }
   if (q.from) { conds.push(`${alias}.start_date >= $${i++}`); params.push(q.from); }
   if (q.to) { conds.push(`${alias}.start_date <= $${i++}`); params.push(q.to); }

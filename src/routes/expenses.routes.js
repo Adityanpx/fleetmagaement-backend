@@ -4,11 +4,11 @@ const { body } = require('express-validator');
 const validate = require('../middleware/validate');
 const c = require('../controllers/expenses.controller');
 
-const categories = ['advance', 'diesel', 'toll', 'food', 'fine', 'parking', 'loading_unloading', 'tyre', 'repair', 'other'];
+const categories = ['diesel', 'toll', 'food', 'fine', 'parking', 'loading_unloading', 'tyre', 'repair', 'other'];
 
 const rules = [
   body('category').isIn(categories),
-  body('paid_by').isIn(['ourselves', 'company', 'driver']),
+  body('paid_by').isIn(['ourselves', 'company']),
   body('expense_date').isISO8601(),
   body('mode').optional({ values: 'falsy' }).isIn(['cash', 'upi', 'bank', 'card']),
 ];

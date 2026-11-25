@@ -9,12 +9,11 @@ const { nz } = require('../utils/values');
 
 const TRIP_SELECT = `
   SELECT t.*, v.number AS vehicle_number, v.brand AS vehicle_brand,
-         d.name AS driver_name, c.name AS company_name,
+         c.name AS company_name,
          tf.income, tf.owner_cost, tf.profit, tf.received, tf.pending,
          tf.company_diesel, tf.km, tf.diesel_litres
     FROM trips t
     JOIN vehicles v ON v.id = t.vehicle_id
-    LEFT JOIN drivers d ON d.id = t.driver_id
     LEFT JOIN companies c ON c.id = t.company_id
     JOIN trip_financials tf ON tf.trip_id = t.id`;
 
@@ -44,11 +43,11 @@ exports.create = asyncHandler(async (req, res) => {
   }
   const { rows } = await query(
     `INSERT INTO trips
-       (vehicle_id, driver_id, company_id, cargo, quantity, start_date, start_location,
+       (vehicle_id, company_id, cargo, quantity, start_date, start_location,
         expected_end_date, expected_end_location, start_odometer, freight_amount,
         deduct_company_diesel, notes, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'scheduled') RETURNING *`,
-    [f.vehicle_id, nz(f.driver_id), nz(f.company_id), nz(f.cargo),
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'scheduled') RETURNING *`,
+    [f.vehicle_id, nz(f.company_id), nz(f.cargo),
      nz(f.quantity), f.start_date, f.start_location, nz(f.expected_end_date),
      nz(f.expected_end_location), nz(f.start_odometer), nz(f.freight_amount) ?? 0,
      !!deduct, nz(f.notes)]);
@@ -66,12 +65,12 @@ exports.update = asyncHandler(async (req, res) => {
 
   const { rows } = await query(
     `UPDATE trips SET
-       vehicle_id=$1, driver_id=$2, company_id=$3, cargo=$4, quantity=$5,
-       start_date=$6, start_location=$7, expected_end_date=$8, expected_end_location=$9,
-       start_odometer=$10, freight_amount=$11,
-       deduct_company_diesel=COALESCE($12, deduct_company_diesel), notes=$13
-     WHERE id=$14 RETURNING *`,
-    [f.vehicle_id, nz(f.driver_id), nz(f.company_id), nz(f.cargo),
+       vehicle_id=$1, company_id=$2, cargo=$3, quantity=$4,
+       start_date=$5, start_location=$6, expected_end_date=$7, expected_end_location=$8,
+       start_odometer=$9, freight_amount=$10,
+       deduct_company_diesel=COALESCE($11, deduct_company_diesel), notes=$12
+     WHERE id=$13 RETURNING *`,
+    [f.vehicle_id, nz(f.company_id), nz(f.cargo),
      nz(f.quantity), f.start_date, f.start_location, nz(f.expected_end_date),
      nz(f.expected_end_location), startOdo, nz(f.freight_amount) ?? 0,
      f.deduct_company_diesel === undefined ? null : !!f.deduct_company_diesel,
@@ -114,7 +113,7 @@ exports.changeStatus = asyncHandler(async (req, res) => {
 });
 
 exports.remove = asyncHandler(async (req, res) => {
-  // expenses & payments cascade via FK ON DELETE CASCADE; settlements set null.
+  // expenses & payments cascade via FK ON DELETE CASCADE.
   const del = await query('DELETE FROM trips WHERE id=$1 RETURNING id', [req.params.id]);
   if (!del.rows[0]) throw new ApiError(404, 'Trip not found');
   res.json({ deleted: true });

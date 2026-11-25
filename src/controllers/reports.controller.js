@@ -8,11 +8,10 @@ const round2 = (n) => Math.round(n * 100) / 100;
 exports.trips = asyncHandler(async (req, res) => {
   const { clause, params } = buildTripFilters(req.query, 't', 1);
   const { rows } = await query(
-    `SELECT t.id, t.start_date, t.status, v.number AS vehicle, d.name AS driver,
+    `SELECT t.id, t.start_date, t.status, v.number AS vehicle,
             c.name AS company, tf.freight_amount, tf.company_diesel, tf.income,
             tf.owner_cost, tf.profit, tf.received, tf.pending, tf.km
        FROM trips t JOIN vehicles v ON v.id=t.vehicle_id
-       LEFT JOIN drivers d ON d.id=t.driver_id
        LEFT JOIN companies c ON c.id=t.company_id
        JOIN trip_financials tf ON tf.trip_id=t.id ${clause}
       ORDER BY t.start_date DESC, t.id DESC`, params);
@@ -72,7 +71,7 @@ exports.fuel = asyncHandler(async (req, res) => {
        LEFT JOIN (
          SELECT trip_id,
                 SUM(COALESCE(litres,0)) AS litres,
-                SUM(CASE WHEN paid_by IN ('ourselves','driver') THEN amount ELSE 0 END) AS diesel_cost
+                SUM(CASE WHEN paid_by = 'ourselves' THEN amount ELSE 0 END) AS diesel_cost
            FROM expenses WHERE category='diesel'
           GROUP BY trip_id
        ) dz ON dz.trip_id=t.id
@@ -85,16 +84,6 @@ exports.fuel = asyncHandler(async (req, res) => {
     cost_per_km: Number(r.km) > 0 ? Number((Number(r.diesel_cost) / Number(r.km)).toFixed(2)) : null,
   }));
   res.json({ rows: out });
-});
-
-exports.drivers = asyncHandler(async (req, res) => {
-  const { rows } = await query(
-    `SELECT d.id, d.name, d.phone, COALESCE(b.own_spend,0) own_spend,
-            COALESCE(b.advances,0) advances, COALESCE(b.net_settle,0) net_settle,
-            COALESCE(b.balance,0) balance
-       FROM drivers d LEFT JOIN driver_balances b ON b.driver_id=d.id
-      ORDER BY d.name`);
-  res.json({ rows });
 });
 
 exports.companies = asyncHandler(async (req, res) => {

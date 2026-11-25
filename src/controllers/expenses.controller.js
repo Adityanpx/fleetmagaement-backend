@@ -1,8 +1,6 @@
 // src/controllers/expenses.controller.js
 // Guards keep every row consistent with the views' assumptions:
 // - paid_by='company' must resolve to a company
-// - paid_by='driver' needs a driver on the trip
-// - an advance is cash given TO the driver: needs a driver, and cannot be "paid by driver"
 // - diesel computes amount = litres x rate when amount is omitted
 const { query } = require('../config/db');
 const ApiError = require('../utils/ApiError');
@@ -10,18 +8,12 @@ const asyncHandler = require('../utils/asyncHandler');
 const { nz } = require('../utils/values');
 
 async function validateExpense(tripId, f) {
-  const trip = await query('SELECT driver_id, company_id FROM trips WHERE id=$1', [tripId]);
+  const trip = await query('SELECT company_id FROM trips WHERE id=$1', [tripId]);
   if (!trip.rows[0]) throw new ApiError(404, 'Trip not found');
-  const { driver_id: driverId, company_id: tripCompanyId } = trip.rows[0];
+  const { company_id: tripCompanyId } = trip.rows[0];
 
-  if (f.paid_by === 'driver' && !driverId)
-    throw new ApiError(400, 'This trip has no driver, so "paid by driver" is not allowed');
   if (f.paid_by === 'company' && !nz(f.company_id) && !tripCompanyId)
     throw new ApiError(400, 'company_id is required when paid_by is company');
-  if (f.category === 'advance') {
-    if (!driverId) throw new ApiError(400, 'An advance needs a driver on the trip');
-    if (f.paid_by === 'driver') throw new ApiError(400, 'An advance cannot be paid by the driver');
-  }
 
   let amount = nz(f.amount);
   if (f.category === 'diesel') {

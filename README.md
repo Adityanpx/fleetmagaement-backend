@@ -1,20 +1,19 @@
 # Bulker Fleet Manager — Backend
 
-REST API for a single-owner cement **bulker** transport business: vehicles, drivers, companies, trips, expenses, freight payments and driver settlements. Node.js + Express + PostgreSQL (Supabase via `pg`), JWT auth for one owner account.
+REST API for a single-owner cement **bulker** transport business: vehicles, companies, trips, expenses and freight payments. Node.js + Express + PostgreSQL (Supabase via `pg`), JWT auth for one owner account.
 
-All money logic lives in two SQL views in `src/db/schema.sql`:
+All money logic lives in one SQL view, `trip_financials`, in `src/db/schema.sql`:
 
-- **`trip_financials`**
-  - `income = freight − company_diesel` when the trip's deduct switch is on, otherwise `freight`. A cancelled trip has income `0`.
-  - `owner_cost` = expenses that are not advances and were paid by us or the driver.
-  - `profit = income − owner_cost`, `pending = income − received`.
-- **`driver_balances`**: `balance = own_spend − advances + (received_from_driver − paid_to_driver)`. A positive balance means we owe the driver.
+- `income = freight − company_diesel` when the trip's deduct switch is on, otherwise `freight`. A cancelled trip has income `0`.
+- `owner_cost` = expenses paid by us. Company-paid items are borne by the company.
+- `profit = income − owner_cost`, `pending = income − received`.
 
 ## Setup
 
 1. `npm install`
 2. Create a Supabase project.
 3. Create the schema: paste `src/db/schema.sql` into the Supabase SQL editor and run it, **or** run `npm run db:schema`. Both are safe to re-run.
+   - Upgrading a database created before drivers were removed? Run `npm run db:migrate` instead. It is also safe to re-run.
 4. Copy `.env.example` to `.env` and fill it in:
    - `DATABASE_URL`: use the **Session pooler** URI (`*.pooler.supabase.com:5432`). The direct `db.xxx.supabase.co` host only works over IPv6, so Render can't reach it. URL-encode special characters in the password (`@` → `%40`), and don't add `?sslmode=`.
    - Set a long random `JWT_SECRET` and a strong `OWNER_PASSWORD`.
@@ -33,10 +32,6 @@ All routes are under `/api`. Every route except `POST /auth/login` needs the hea
 | GET | `/auth/me` | |
 | GET/POST | `/vehicles` | `?active=true` |
 | GET/PUT/DELETE | `/vehicles/:id` | DELETE soft-deletes if the vehicle has trips |
-| GET/POST | `/drivers` | list includes `balance` |
-| GET/PUT/DELETE | `/drivers/:id` | GET includes the balance breakdown and settlements |
-| POST | `/drivers/:id/settlements` | `{ amount, direction: paid_to_driver\|received_from_driver, settle_date, trip_id?, note? }` |
-| DELETE | `/drivers/:id/settlements/:settlementId` | |
 | GET/POST | `/companies` | |
 | GET/PUT/DELETE | `/companies/:id` | GET includes a `ledger` |
 | GET/POST | `/trips` | filters below; `deduct_company_diesel` defaults to the company's setting |
@@ -46,16 +41,16 @@ All routes are under `/api`. Every route except `POST /auth/login` needs the hea
 | DELETE | `/trips/:id/payments/:paymentId` | |
 | GET/POST | `/trips/:tripId/expenses` | diesel: `amount` = litres × rate if omitted; `fill_location` required |
 | PUT/DELETE | `/expenses/:id` | |
-| GET | `/dashboard` | tiles, expenses by category, profit by vehicle, monthly trend, running trips, document expiries, driver dues |
-| GET | `/reports/trips` \| `vehicles` \| `expenses` \| `fuel` \| `drivers` \| `companies` | |
+| GET | `/dashboard` | tiles, expenses by category, profit by vehicle, monthly trend, running trips, document expiries |
+| GET | `/reports/trips` \| `vehicles` \| `expenses` \| `fuel` \| `companies` | |
 
-**Filters** (trip lists, dashboard, reports): `from`, `to` (compared against trip `start_date`), `vehicle_id`, `driver_id`, `company_id`, `status`.
+**Filters** (trip lists, dashboard, reports): `from`, `to` (compared against trip `start_date`), `vehicle_id`, `company_id`, `status`.
 
 **Formats**
 - Dates are `YYYY-MM-DD` strings.
 - Money, litres and km are JSON numbers.
 - Errors look like `{ error, details? }`.
 - Enum values:
-  - Expense `category`: `advance diesel toll food fine parking loading_unloading tyre repair other`
-  - `paid_by`: `ourselves company driver`
+  - Expense `category`: `diesel toll food fine parking loading_unloading tyre repair other`
+  - `paid_by`: `ourselves company`
   - `mode`: `cash upi bank card`

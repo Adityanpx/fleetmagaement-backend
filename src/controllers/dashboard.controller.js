@@ -19,17 +19,17 @@ exports.summary = asyncHandler(async (req, res) => {
         COALESCE(SUM(tf.pending),0)    AS total_pending
        FROM trips t JOIN trip_financials tf ON tf.trip_id=t.id ${clause}`, params);
 
-  // Diesel cost to owner (ourselves+driver) in the same filter window
+  // Diesel cost to owner in the same filter window
   const diesel = await query(
     `SELECT COALESCE(SUM(e.amount),0) AS diesel_cost
        FROM expenses e JOIN trips t ON t.id=e.trip_id
-      WHERE e.category='diesel' AND e.paid_by IN ('ourselves','driver') ${andClause}`, params);
+      WHERE e.category='diesel' AND e.paid_by='ourselves' ${andClause}`, params);
 
   // Expenses by category (owner-borne)
   const byCat = await query(
     `SELECT e.category, COALESCE(SUM(e.amount),0) AS total
        FROM expenses e JOIN trips t ON t.id=e.trip_id
-      WHERE e.category<>'advance' AND e.paid_by IN ('ourselves','driver') ${andClause}
+      WHERE e.paid_by='ourselves' ${andClause}
       GROUP BY e.category ORDER BY total DESC`, params);
 
   // Profit by vehicle
@@ -68,12 +68,6 @@ exports.summary = asyncHandler(async (req, res) => {
         puc_expiry       <= CURRENT_DATE + 30)
       ORDER BY number`);
 
-  // Driver dues
-  const drivers = await query(
-    `SELECT d.id, d.name, b.balance
-       FROM drivers d JOIN driver_balances b ON b.driver_id=d.id
-      WHERE b.balance <> 0 ORDER BY ABS(b.balance) DESC`);
-
   res.json({
     tiles: { ...tiles.rows[0], diesel_cost: diesel.rows[0].diesel_cost },
     expensesByCategory: byCat.rows,
@@ -81,6 +75,5 @@ exports.summary = asyncHandler(async (req, res) => {
     monthly: monthly.rows,
     runningTrips: running.rows,
     documentExpiries: expiries.rows,
-    driverDues: drivers.rows,
   });
 });

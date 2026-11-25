@@ -8,7 +8,6 @@ router.use('/auth', require('./auth.routes'));
 // everything below requires a valid token
 router.use(requireAuth);
 router.use('/vehicles', require('./vehicles.routes'));
-router.use('/drivers', require('./drivers.routes'));
 router.use('/companies', require('./companies.routes'));
 router.use('/trips', require('./trips.routes'));
 router.use('/', require('./expenses.routes')); // /trips/:tripId/expenses & /expenses/:id

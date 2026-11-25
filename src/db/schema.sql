@@ -1,5 +1,6 @@
 -- src/db/schema.sql
--- Run once in Supabase SQL editor (or `npm run db:schema`). Safe to re-run.
+-- Full schema for a NEW database. Run once in the Supabase SQL editor (or `npm run db:schema`). Safe to re-run.
+-- Existing databases created with the old driver tables: run `npm run db:migrate` instead.
 
 -- ---------- USERS (single owner) ----------
 CREATE TABLE IF NOT EXISTS users (
@@ -26,18 +27,6 @@ CREATE TABLE IF NOT EXISTS vehicles (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ---------- DRIVERS ----------
-CREATE TABLE IF NOT EXISTS drivers (
-  id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  name            TEXT NOT NULL,
-  phone           TEXT,
-  license_number  TEXT,
-  license_expiry  DATE,
-  salary          NUMERIC(12,2),
-  is_active       BOOLEAN NOT NULL DEFAULT true,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 -- ---------- COMPANIES ----------
 CREATE TABLE IF NOT EXISTS companies (
   id                     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -53,7 +42,6 @@ CREATE TABLE IF NOT EXISTS companies (
 CREATE TABLE IF NOT EXISTS trips (
   id                     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   vehicle_id             BIGINT NOT NULL REFERENCES vehicles(id),
-  driver_id              BIGINT REFERENCES drivers(id),
   company_id             BIGINT REFERENCES companies(id),
   cargo                  TEXT,
   quantity               NUMERIC(10,2),
@@ -78,12 +66,12 @@ CREATE TABLE IF NOT EXISTS trips (
 CREATE TABLE IF NOT EXISTS expenses (
   id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   trip_id       BIGINT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
-  category      TEXT NOT NULL CHECK (category IN
-                 ('advance','diesel','toll','food','fine','parking',
+  category      TEXT NOT NULL CONSTRAINT expenses_category_check CHECK (category IN
+                 ('diesel','toll','food','fine','parking',
                   'loading_unloading','tyre','repair','other')),
   amount        NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
   expense_date  DATE NOT NULL,
-  paid_by       TEXT NOT NULL CHECK (paid_by IN ('ourselves','company','driver')),
+  paid_by       TEXT NOT NULL CONSTRAINT expenses_paid_by_check CHECK (paid_by IN ('ourselves','company')),
   company_id    BIGINT REFERENCES companies(id),  -- set when paid_by='company'
   mode          TEXT CHECK (mode IN ('cash','upi','bank','card')),
   vendor_name   TEXT,          -- pump / shop / company name
@@ -108,32 +96,19 @@ CREATE TABLE IF NOT EXISTS trip_payments (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ---------- DRIVER SETTLEMENTS ----------
-CREATE TABLE IF NOT EXISTS driver_settlements (
-  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  driver_id    BIGINT NOT NULL REFERENCES drivers(id) ON DELETE CASCADE,
-  trip_id      BIGINT REFERENCES trips(id) ON DELETE SET NULL,
-  amount       NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
-  direction    TEXT NOT NULL CHECK (direction IN ('paid_to_driver','received_from_driver')),
-  settle_date  DATE NOT NULL,
-  note         TEXT,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 -- ---------- INDEXES ----------
 CREATE INDEX IF NOT EXISTS idx_trips_vehicle   ON trips(vehicle_id);
-CREATE INDEX IF NOT EXISTS idx_trips_driver    ON trips(driver_id);
 CREATE INDEX IF NOT EXISTS idx_trips_company   ON trips(company_id);
 CREATE INDEX IF NOT EXISTS idx_trips_status    ON trips(status);
 CREATE INDEX IF NOT EXISTS idx_trips_startdate ON trips(start_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_trip   ON expenses(trip_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_cat    ON expenses(category);
 CREATE INDEX IF NOT EXISTS idx_payments_trip   ON trip_payments(trip_id);
-CREATE INDEX IF NOT EXISTS idx_settle_driver   ON driver_settlements(driver_id);
 
 -- ---------- VIEW: trip_financials (THE money logic, one place) ----------
--- A cancelled trip earns no income (income = 0) but its owner costs are still real,
--- so profit goes negative by the amount spent.
+-- income   = freight - company diesel (if the trip's deduct switch is on), 0 if cancelled
+-- owner_cost = everything paid by us; company-paid items are borne by the company
+-- A cancelled trip earns nothing but its costs still count.
 DROP VIEW IF EXISTS trip_financials;
 CREATE VIEW trip_financials AS
 WITH base AS (
@@ -159,7 +134,7 @@ WITH base AS (
   ) cd ON cd.trip_id = t.id
   LEFT JOIN (
     SELECT trip_id, SUM(amount) AS owner_cost
-    FROM expenses WHERE category <> 'advance' AND paid_by IN ('ourselves','driver')
+    FROM expenses WHERE paid_by = 'ourselves'
     GROUP BY trip_id
   ) oc ON oc.trip_id = t.id
   LEFT JOIN (
@@ -184,34 +159,3 @@ SELECT
   km,
   diesel_litres
 FROM base;
-
--- ---------- VIEW: driver_balances ----------
--- positive = we owe the driver, negative = driver owes us
-DROP VIEW IF EXISTS driver_balances;
-CREATE VIEW driver_balances AS
-SELECT
-  d.id AS driver_id,
-  COALESCE(own.own_spend, 0)  AS own_spend,
-  COALESCE(adv.advances, 0)   AS advances,
-  COALESCE(stl.net_settle, 0) AS net_settle,
-  COALESCE(own.own_spend, 0) - COALESCE(adv.advances, 0) + COALESCE(stl.net_settle, 0) AS balance
-FROM drivers d
-LEFT JOIN (
-  SELECT t.driver_id, SUM(e.amount) AS own_spend
-  FROM expenses e JOIN trips t ON t.id = e.trip_id
-  WHERE e.paid_by = 'driver'
-  GROUP BY t.driver_id
-) own ON own.driver_id = d.id
-LEFT JOIN (
-  SELECT t.driver_id, SUM(e.amount) AS advances
-  FROM expenses e JOIN trips t ON t.id = e.trip_id
-  WHERE e.category = 'advance'
-  GROUP BY t.driver_id
-) adv ON adv.driver_id = d.id
-LEFT JOIN (
-  SELECT driver_id,
-         SUM(CASE WHEN direction = 'received_from_driver' THEN amount
-                  ELSE -amount END) AS net_settle
-  FROM driver_settlements
-  GROUP BY driver_id
-) stl ON stl.driver_id = d.id;
